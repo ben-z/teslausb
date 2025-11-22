@@ -138,6 +138,61 @@ EOF
   chmod +x /usr/local/bin/create-ap0.sh || return 1
   systemctl daemon-reload || return 1
   systemctl enable teslausb-ap.service || return 1
+
+  # Create WiFi auto-reconnect script for concurrent STA+AP mode
+  # NetworkManager may not perform background scans when wlan0 is disconnected
+  # while ap0 is active, so we periodically scan and attempt reconnection
+  cat > /usr/local/bin/wifi-autoconnect.sh << "EOF"
+#!/bin/bash
+# Periodic WiFi scanning and auto-connect for teslausb concurrent STA+AP mode
+
+# Only run if wlan0 is disconnected
+if nmcli -t -f DEVICE,STATE device status | grep -q "^wlan0:disconnected"; then
+    # Request a WiFi scan
+    nmcli device wifi rescan 2>/dev/null || true
+
+    # Wait briefly for scan to complete
+    sleep 2
+
+    # Check if any autoconnect-enabled connections are available
+    # NetworkManager should automatically connect, but we can trigger it explicitly
+    for conn in $(nmcli -t -f NAME,TYPE,AUTOCONNECT con show | grep ":802-11-wireless:yes$" | cut -d: -f1); do
+        # Try to connect (will only succeed if network is in range)
+        nmcli con up "$conn" ifname wlan0 2>/dev/null && break
+    done
+fi
+EOF
+  chmod +x /usr/local/bin/wifi-autoconnect.sh || return 1
+
+  # Create systemd service for WiFi auto-reconnect
+  cat > /etc/systemd/system/wifi-autoconnect.service << 'EOF'
+[Unit]
+Description=WiFi Auto-Connect for Concurrent STA+AP
+After=NetworkManager.service
+Requires=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/wifi-autoconnect.sh
+EOF
+
+  # Create systemd timer to run WiFi auto-reconnect periodically
+  cat > /etc/systemd/system/wifi-autoconnect.timer << 'EOF'
+[Unit]
+Description=Periodic WiFi Scanning and Auto-Connect
+After=NetworkManager.service
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=60sec
+AccuracySec=5sec
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  systemctl daemon-reload || return 1
+  systemctl enable wifi-autoconnect.timer || return 1
 }
 
 
