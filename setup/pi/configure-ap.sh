@@ -69,27 +69,84 @@ function nm_add_ap () {
   nmcli con modify TESLAUSB_AP ipv4.addr "$IP/24" || return 1
   nmcli con modify TESLAUSB_AP ipv4.method shared || return 1
   nmcli con modify TESLAUSB_AP ipv6.method disabled || return 1
-  cat > /etc/network/if-up.d/teslausb-ap << EOF
-#!/bin/bash
 
-if [ "\$IFACE" = "$WLAN" ]
-then
-  iw dev $WLAN interface add ap0 type __ap
-  iw "$WLAN" set power_save off
-  iw ap0 set power_save off
-  nmcli con up TESLAUSB_AP
+  # Create systemd service to automatically create ap0 interface on boot
+  # This replaces the old /etc/network/if-up.d hook which doesn't work with NetworkManager
+  cat > /etc/systemd/system/teslausb-ap.service << EOF
+[Unit]
+Description=TeslaUSB AP Interface Creator
+After=network-online.target sys-subsystem-net-devices-${WLAN}.device
+Wants=network-online.target sys-subsystem-net-devices-${WLAN}.device
+Requires=sys-subsystem-net-devices-${WLAN}.device
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/create-ap0.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  # Create script that creates the ap0 interface
+  cat > /usr/local/bin/create-ap0.sh << EOF
+#!/bin/bash
+# Script to create ap0 interface for TeslaUSB concurrent STA+AP
+
+set -e
+
+if ! ip link show $WLAN > /dev/null 2>&1; then
+    echo "ERROR: $WLAN does not exist"
+    exit 1
 fi
 
+echo "$WLAN is available"
+
+# Create ap0 interface if it does not exist
+if ! ip link show ap0 > /dev/null 2>&1; then
+    echo "Creating ap0 interface..."
+    iw dev $WLAN interface add ap0 type __ap
+    echo "ap0 created successfully"
+else
+    echo "ap0 already exists"
+fi
+
+# Disable power save
+iw $WLAN set power_save off 2>/dev/null || true
+iw ap0 set power_save off 2>/dev/null || true
+
+# Wait for NetworkManager to detect ap0 (retry loop instead of fixed delay)
+for i in {1..30}; do
+    if nmcli device status | grep -q "^ap0"; then
+        echo "NetworkManager detected ap0 (attempt \$i)"
+        # Brief delay for WiFi subsystem to stabilize
+        sleep 2
+        break
+    fi
+    sleep 1
+done
+
+# Bring up the AP connection
+echo "Activating TESLAUSB_AP connection..."
+if nmcli con up TESLAUSB_AP ifname ap0; then
+    echo "TeslaUSB AP setup complete"
+else
+    echo "WARNING: Failed to activate AP - autoconnect should handle it"
+    exit 1
+fi
 EOF
-  chmod a+x /etc/network/if-up.d/teslausb-ap || return 1
+  chmod +x /usr/local/bin/create-ap0.sh || return 1
+  systemctl daemon-reload || return 1
+  systemctl enable teslausb-ap.service || return 1
 }
 
 
 if systemctl --quiet is-enabled NetworkManager.service
 then
-  # force-install iw because otherwise it will get autoremoved when
-  # alsa-utils is removed later
-  apt-get -y --force-yes install iw || return 1
+  # force-install iw and dnsmasq-base because otherwise they will get autoremoved when
+  # alsa-utils is removed later. dnsmasq-base is required for NetworkManager to provide
+  # DHCP service for the AP
+  apt-get -y --force-yes install iw dnsmasq-base || return 1
   if ! nm_add_ap
   then
     # Network Manager won't allow adding connections when started with a
