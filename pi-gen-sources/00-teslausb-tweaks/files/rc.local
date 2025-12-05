@@ -106,8 +106,12 @@ function enable_wifi () {
   setup_progress "Detecting whether to configure wifi"
   if [[ -n "$SSID" ]] && [[ -n "$WIFIPASS" ]]
   then
-    if [ ! -e /teslausb/WIFI_ENABLED ]
+    setup_progress "Configuring wifi"
+    if [ -e /teslausb/WIFI_ENABLED ]
     then
+      setup_progress "wifi already enabled (/teslausb/WIFI_ENABLED exists), skipping setup"
+    else
+      setup_progress "Enabling wifi with SSID: $SSID"
       if [ -x /root/bin/remountfs_rw ]
       then
         /root/bin/remountfs_rw
