@@ -160,9 +160,6 @@ then
   done
 fi
 
-# The user should have configured networking manually, so disable wifi setup
-touch /teslausb/WIFI_ENABLED
-
 # Copy our rc.local from github, which will allow setup to
 # continue using the regular "one step setup" process used
 # for setting up a Raspberry Pi with the prebuilt image
