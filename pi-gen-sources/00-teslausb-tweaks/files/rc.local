@@ -178,18 +178,13 @@ EOF
   source "$1"
 }
 
-if [ -e "/teslausb/teslausb_setup_variables.conf" ]
-then
-  if [ -e /root/bin/remountfs_rw ]
-  then
-    /root/bin/remountfs_rw
-  fi
-  mv /teslausb/teslausb_setup_variables.conf /root/
-  dos2unix /root/teslausb_setup_variables.conf
-fi
 if [ -e "/root/teslausb_setup_variables.conf" ]
 then
   safesource /root/teslausb_setup_variables.conf
+elif [ -e "/teslausb/teslausb_setup_variables.conf" ]
+then
+  setup_progress "Config file found in legacy location /teslausb/teslausb_setup_variables.conf. Use /root/teslausb_setup_variables.conf instead."
+fi
 elif [ -e "/teslausb/teslausb_setup_variables.conf.sample" ]
 then
   setup_progress "no config file found, but sample file is present."
