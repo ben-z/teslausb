@@ -100,6 +100,8 @@ function nm_connect_wifi () {
     setup_progress "failed to connect to wifi, retrying"
     sleep 5
   done
+
+  setup_progress "wifi connected successfully"
 }
 
 function enable_wifi () {
